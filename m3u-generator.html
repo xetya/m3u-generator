@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>M3U Playlist Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f4f3ef;
+  --surface: #ffffff;
+  --surface2: #eceae4;
+  --border: #dedad1;
+  --text: #1c1b18;
+  --text2: #888580;
+  --accent: #2d6a4f;
+  --accent-bg: #e8f5ee;
+  --danger: #b83232;
+  --danger-bg: #fbeaea;
+  --r: 10px;
+  --tr: .18s ease;
+}
+
+[data-theme="dark"] {
+  --bg: #131412;
+  --surface: #1e1f1c;
+  --surface2: #27281f;
+  --border: #303028;
+  --text: #e6e4dc;
+  --text2: #64635e;
+  --accent: #52b788;
+  --accent-bg: #192b20;
+  --danger: #e05252;
+  --danger-bg: #2b1818;
+}
+
+html { height: 100%; }
+body {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Syne', sans-serif;
+  font-size: 14px;
+  transition: background var(--tr), color var(--tr);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* TOPBAR */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px; height: 50px;
+}
+.logo { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 700; }
+.logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+.chip {
+  font-family: 'DM Mono', monospace; font-size: 10px;
+  color: var(--text2); background: var(--surface2);
+  border: 1px solid var(--border); padding: 3px 9px; border-radius: 99px;
+}
+.theme-btn {
+  width: 34px; height: 34px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text2); cursor: pointer; display: grid; place-items: center;
+  transition: border-color var(--tr), color var(--tr);
+}
+.theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* LAYOUT */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  max-width: 1160px;
+  margin: 0 auto;
+  min-height: calc(100vh - 50px);
+}
+.col-left {
+  padding: 20px;
+  border-right: 1px solid var(--border);
+}
+.col-right {
+  padding: 20px;
+  display: flex; flex-direction: column; gap: 12px;
+  position: sticky; top: 50px;
+  height: calc(100vh - 50px);
+  overflow-y: auto;
+}
+
+.col-heading {
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--text2); margin-bottom: 14px;
+}
+
+/* CHANNELS */
+.channels { display: flex; flex-direction: column; gap: 12px; }
+
+/* CARD */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  transition: border-color var(--tr);
+  animation: fadeUp .2s ease;
+}
+.card:focus-within { border-color: var(--accent); }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(-5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.card-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 13px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none;
+}
+.card-idx {
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  color: var(--accent); font-weight: 500; flex-shrink: 0;
+}
+.card-preview {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  flex: 1; margin: 0 10px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.card-btns { display: flex; gap: 5px; }
+.icon-btn {
+  width: 28px; height: 28px; border-radius: 6px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text2); cursor: pointer; display: grid; place-items: center;
+  transition: all var(--tr); flex-shrink: 0;
+}
+.icon-btn:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+.toggle-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.icon-btn svg { width: 13px; height: 13px; pointer-events: none; }
+
+/* CARD BODY */
+.card-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.card-body.hidden { display: none; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+label {
+  font-size: 10px; font-weight: 700; letter-spacing: .7px;
+  text-transform: uppercase; color: var(--text2);
+}
+input[type="text"],
+input[type="url"] {
+  height: 36px; padding: 0 11px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text);
+  font-family: 'DM Mono', monospace; font-size: 12px;
+  outline: none; transition: border-color var(--tr), background var(--tr); width: 100%;
+}
+input:focus { border-color: var(--accent); background: var(--surface); }
+input::placeholder { color: var(--text2); opacity: .5; }
+
+/* STREAMS */
+.streams-head {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
+}
+.streams-lbl {
+  font-size: 10px; font-weight: 700; letter-spacing: .7px;
+  text-transform: uppercase; color: var(--text2);
+}
+.streams-list { display: flex; flex-direction: column; gap: 6px; }
+.stream-row { display: flex; align-items: center; gap: 7px; }
+.stream-badge {
+  font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500;
+  padding: 3px 7px; border-radius: 5px; white-space: nowrap; flex-shrink: 0;
+}
+.badge-main { background: var(--accent-bg); color: var(--accent); }
+.badge-back { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+
+/* HASH prefix wrapper */
+.url-wrap { position: relative; flex: 1; display: flex; align-items: center; }
+.hash-sym {
+  position: absolute; left: 11px;
+  font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text2);
+  pointer-events: none; line-height: 1;
+}
+.url-wrap.has-hash input { padding-left: 20px; }
+
+.btn-add-backup {
+  margin-top: 4px; width: 100%; height: 32px;
+  border: 1px dashed var(--border); border-radius: 8px;
+  background: transparent; color: var(--text2);
+  font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 600;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;
+  transition: all var(--tr);
+}
+.btn-add-backup:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+/* ADD CHANNEL */
+.btn-add-ch {
+  margin-top: 14px; width: 100%; height: 42px;
+  border: 1.5px dashed var(--border); border-radius: var(--r);
+  background: transparent; color: var(--text2);
+  font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 7px;
+  transition: all var(--tr);
+}
+.btn-add-ch:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+/* STATS */
+.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 9px; padding: 12px; text-align: center;
+}
+.stat-val { font-family: 'DM Mono', monospace; font-size: 22px; color: var(--accent); line-height: 1; }
+.stat-lbl { font-size: 9px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--text2); margin-top: 4px; }
+
+/* PREVIEW */
+.preview-box {
+  flex: 1; min-height: 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); display: flex; flex-direction: column; overflow: hidden;
+}
+.preview-head {
+  padding: 9px 13px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.preview-title { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--text2); }
+.preview-lines { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--accent); }
+.preview-body {
+  flex: 1; overflow-y: auto; padding: 12px 13px;
+  font-family: 'DM Mono', monospace; font-size: 11px; line-height: 1.75;
+  white-space: pre-wrap; word-break: break-all;
+}
+.t-header { color: var(--accent); font-weight: 500; }
+.t-extinf  { color: var(--text); }
+.t-url     { color: var(--accent); }
+.t-backup  { color: var(--text2); }
+.t-empty   { text-align: center; padding: 30px 0; color: var(--text2); font-size: 11px; opacity: .6; }
+
+/* FILENAME */
+.filename-wrap {
+  display: flex; align-items: center;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 9px; overflow: hidden;
+}
+.filename-wrap input {
+  flex: 1; border: none; border-radius: 0; background: transparent;
+  height: 38px; font-size: 13px;
+}
+.filename-wrap input:focus { border: none; background: transparent; }
+.filename-ext {
+  padding: 0 11px; font-family: 'DM Mono', monospace; font-size: 12px;
+  color: var(--text2); border-left: 1px solid var(--border);
+  height: 38px; display: flex; align-items: center;
+  flex-shrink: 0; background: var(--surface2);
+}
+
+/* DOWNLOAD */
+.btn-dl {
+  width: 100%; height: 44px; background: var(--accent); color: #fff;
+  border: none; border-radius: 9px;
+  font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: opacity var(--tr), transform var(--tr);
+}
+.btn-dl:hover:not(:disabled) { opacity: .85; transform: translateY(-1px); }
+.btn-dl:active:not(:disabled) { transform: none; }
+.btn-dl:disabled { opacity: .28; cursor: not-allowed; }
+.btn-dl svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* TOAST */
+.toast {
+  position: fixed; bottom: 18px; left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  background: var(--text); color: var(--bg);
+  padding: 8px 20px; border-radius: 99px;
+  font-size: 12px; font-weight: 600;
+  opacity: 0; pointer-events: none;
+  transition: all .25s ease; z-index: 999; white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* MOBILE */
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; min-height: auto; }
+  .col-left { padding: 14px; border-right: none; border-bottom: 1px solid var(--border); }
+  .col-right { padding: 14px; position: static; height: auto; overflow-y: visible; }
+  .preview-box { min-height: 150px; max-height: 200px; }
+  .row2 { grid-template-columns: 1fr; gap: 8px; }
+  .topbar { padding: 0 14px; }
+  .chip { display: none; }
+}
+@media (max-width: 380px) {
+  .card-preview { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo">
+    <div class="logo-dot"></div>
+    M3U Generator
+  </div>
+  <div class="topbar-right">
+    <span class="chip">playlist builder</span>
+    <button class="theme-btn" id="themeBtn" title="Toggle tema">
+      <svg id="themeIco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="col-left">
+    <div class="col-heading">Daftar Channel</div>
+    <div class="channels" id="channelList"></div>
+    <button class="btn-add-ch" id="addChBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="14" height="14">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+      Tambah Channel
+    </button>
+  </div>
+
+  <div class="col-right">
+    <div class="col-heading">Output</div>
+
+    <div class="stats-row">
+      <div class="stat"><div class="stat-val" id="statCh">0</div><div class="stat-lbl">Channel</div></div>
+      <div class="stat"><div class="stat-val" id="statSt">0</div><div class="stat-lbl">Stream URL</div></div>
+    </div>
+
+    <div class="preview-box">
+      <div class="preview-head">
+        <span class="preview-title">Preview M3U</span>
+        <span class="preview-lines" id="previewLines">–</span>
+      </div>
+      <div class="preview-body" id="previewBody">
+        <div class="t-empty">Belum ada channel ditambahkan</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="col-heading" style="margin-bottom:7px">Nama File</div>
+      <div class="filename-wrap">
+        <input type="text" id="filenameInput" value="playlist" placeholder="playlist">
+        <div class="filename-ext">.m3u</div>
+      </div>
+    </div>
+
+    <button class="btn-dl" id="dlBtn" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Download Playlist
+    </button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let channels = [];
+let uid = 0;
+const nextId = () => ++uid;
+
+// THEME
+let dark = false;
+const SUN  = `<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>`;
+const MOON = `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="currentColor" stroke="none"/>`;
+document.getElementById('themeBtn').onclick = () => {
+  dark = !dark;
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : '');
+  const ico = document.getElementById('themeIco');
+  ico.innerHTML = dark ? MOON : SUN;
+  ico.setAttribute('fill', dark ? 'currentColor' : 'none');
+};
+
+// HELPERS
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+function newChannel() {
+  return { id: nextId(), name: '', logo: '', group: '', streams: [{ id: nextId(), url: '' }] };
+}
+
+// BUILD CARD
+const listEl = document.getElementById('channelList');
+
+function buildCard(ch, idx) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.dataset.cid = ch.id;
+
+  // TOP
+  const top = document.createElement('div');
+  top.className = 'card-top';
+  top.innerHTML = `
+    <span class="card-idx">#${idx + 1}</span>
+    <span class="card-preview">${esc(ch.name) || '<span style="opacity:.35">Nama channel…</span>'}</span>
+    <div class="card-btns">
+      <button class="icon-btn toggle-btn" title="Lipat/Buka">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <polyline points="18 15 12 9 6 15"/>
+        </svg>
+      </button>
+      <button class="icon-btn del-btn" title="Hapus channel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+        </svg>
+      </button>
+    </div>`;
+
+  // BODY
+  const body = document.createElement('div');
+  body.className = 'card-body';
+
+  // row: name + group
+  const row2 = document.createElement('div');
+  row2.className = 'row2';
+  const fName  = mkField('Nama Channel', 'text', ch.name,  'Contoh: RCTI HD');
+  const fGroup = mkField('Nama Grup',    'text', ch.group, 'Contoh: Indonesia');
+  row2.append(fName.wrap, fGroup.wrap);
+
+  // logo
+  const fLogo = mkField('URL Logo', 'url', ch.logo, 'https://example.com/logo.png');
+
+  // streams section
+  const streamsSec = document.createElement('div');
+  const streamsHead = document.createElement('div');
+  streamsHead.className = 'streams-head';
+  streamsHead.innerHTML = `<span class="streams-lbl">URL Stream</span>`;
+  const streamsList = document.createElement('div');
+  streamsList.className = 'streams-list';
+
+  function renderStreams() {
+    streamsList.innerHTML = '';
+    ch.streams.forEach((s, si) => {
+      const row = document.createElement('div');
+      row.className = 'stream-row';
+
+      const badge = document.createElement('span');
+      badge.className = 'stream-badge ' + (si === 0 ? 'badge-main' : 'badge-back');
+      badge.textContent = si === 0 ? 'UTAMA' : 'BACKUP';
+
+      const urlWrap = document.createElement('div');
+      urlWrap.className = 'url-wrap' + (si > 0 ? ' has-hash' : '');
+
+      if (si > 0) {
+        const hashEl = document.createElement('span');
+        hashEl.className = 'hash-sym';
+        hashEl.textContent = '#';
+        urlWrap.appendChild(hashEl);
+      }
+
+      const inp = document.createElement('input');
+      inp.type = 'url';
+      inp.value = s.url;
+      inp.placeholder = si === 0
+        ? 'https://live.example.com/stream.m3u8'
+        : 'https://backup.example.com/stream.m3u8';
+      inp.addEventListener('input', () => { s.url = inp.value; syncOutput(); });
+      urlWrap.appendChild(inp);
+      row.append(badge, urlWrap);
+
+      if (si > 0) {
+        const del = document.createElement('button');
+        del.className = 'icon-btn';
+        del.title = 'Hapus';
+        del.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+        del.onclick = () => { ch.streams.splice(si, 1); renderStreams(); syncOutput(); };
+        row.appendChild(del);
+      }
+      streamsList.appendChild(row);
+    });
+  }
+  renderStreams();
+
+  const addBackupBtn = document.createElement('button');
+  addBackupBtn.className = 'btn-add-backup';
+  addBackupBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="11" height="11"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Tambah URL Cadangan`;
+  addBackupBtn.onclick = () => { ch.streams.push({ id: nextId(), url: '' }); renderStreams(); syncOutput(); };
+
+  streamsSec.append(streamsHead, streamsList, addBackupBtn);
+  body.append(row2, fLogo.wrap, streamsSec);
+  card.append(top, body);
+
+  // EVENTS
+  let collapsed = false;
+  const toggleSvg = top.querySelector('.toggle-btn svg');
+  top.addEventListener('click', e => {
+    if (e.target.closest('.del-btn')) return;
+    collapsed = !collapsed;
+    body.classList.toggle('hidden', collapsed);
+    toggleSvg.style.transform = collapsed ? 'rotate(180deg)' : '';
+  });
+  top.querySelector('.del-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    channels = channels.filter(c => c.id !== ch.id);
+    rebuildAll();
+    toast('Channel dihapus');
+  });
+  fName.input.addEventListener('input', () => {
+    ch.name = fName.input.value;
+    top.querySelector('.card-preview').innerHTML = esc(ch.name) || '<span style="opacity:.35">Nama channel…</span>';
+    syncOutput();
+  });
+  fGroup.input.addEventListener('input', () => { ch.group = fGroup.input.value; syncOutput(); });
+  fLogo.input.addEventListener('input',  () => { ch.logo  = fLogo.input.value;  syncOutput(); });
+
+  return card;
+}
+
+function mkField(lbl, type, val, ph) {
+  const wrap  = document.createElement('div');
+  wrap.className = 'field';
+  const label = document.createElement('label');
+  label.textContent = lbl;
+  const input = document.createElement('input');
+  input.type = type; input.value = val; input.placeholder = ph;
+  wrap.append(label, input);
+  return { wrap, input };
+}
+
+function rebuildAll() {
+  listEl.innerHTML = '';
+  channels.forEach((ch, i) => listEl.appendChild(buildCard(ch, i)));
+  syncOutput();
+}
+
+// M3U
+function makeM3U() {
+  let out = '#EXTM3U\n';
+  channels.forEach(ch => {
+    const name  = ch.name || 'Unnamed';
+    const logo  = ch.logo  ? ` tvg-logo="${ch.logo}"`     : '';
+    const group = ch.group ? ` group-title="${ch.group}"` : '';
+    out += `#EXTINF:-1${logo}${group},${name}\n`;
+    ch.streams.forEach((s, si) => {
+      const u = s.url.trim();
+      if (!u) return;
+      // Baris pertama = URL utama langsung, sisanya diberi # di depan
+      out += si === 0 ? `${u}\n` : `#${u}\n`;
+    });
+  });
+  return out;
+}
+
+// SYNC OUTPUT
+function syncOutput() {
+  const previewEl = document.getElementById('previewBody');
+  const linesEl   = document.getElementById('previewLines');
+  const dlBtn     = document.getElementById('dlBtn');
+
+  document.getElementById('statCh').textContent = channels.length;
+  let totalSt = 0;
+  channels.forEach(ch => ch.streams.forEach(s => { if (s.url.trim()) totalSt++; }));
+  document.getElementById('statSt').textContent = totalSt;
+
+  dlBtn.disabled = channels.length === 0;
+
+  if (!channels.length) {
+    previewEl.innerHTML = '<div class="t-empty">Belum ada channel ditambahkan</div>';
+    linesEl.textContent = '–';
+    return;
+  }
+
+  const m3u = makeM3U();
+  const count = m3u.split('\n').filter(l => l.trim()).length;
+  linesEl.textContent = count + ' baris';
+
+  let html = '';
+  m3u.split('\n').forEach(line => {
+    if (!line) { html += '\n'; return; }
+    if (line.startsWith('#EXTM3U'))   html += `<span class="t-header">${esc(line)}</span>\n`;
+    else if (line.startsWith('#EXTINF')) html += `<span class="t-extinf">${esc(line)}</span>\n`;
+    else if (line.startsWith('#'))    html += `<span class="t-backup">${esc(line)}</span>\n`;
+    else                              html += `<span class="t-url">${esc(line)}</span>\n`;
+  });
+  previewEl.innerHTML = html;
+}
+
+// DOWNLOAD
+document.getElementById('dlBtn').onclick = () => {
+  const m3u  = makeM3U();
+  const name = (document.getElementById('filenameInput').value.trim() || 'playlist') + '.m3u';
+  const blob = new Blob([m3u], { type: 'application/x-mpegURL' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: name });
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('✓ ' + name + ' berhasil didownload!');
+};
+
+// ADD CHANNEL BUTTON
+document.getElementById('addChBtn').onclick = () => {
+  const ch = newChannel();
+  channels.push(ch);
+  listEl.appendChild(buildCard(ch, channels.length - 1));
+  syncOutput();
+};
+
+// START
+document.getElementById('addChBtn').click();
+</script>
+</body>
+</html>
