@@ -317,6 +317,17 @@ body {
 .card-btn:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
 .card-btn.toggle:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
 .card-btn svg { width: 12px; height: 12px; pointer-events: none; }
+.card-drag-handle {
+  width: 26px; height: 26px; border-radius: 6px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text2); cursor: grab; display: grid; place-items: center;
+  transition: all var(--tr); flex-shrink: 0;
+}
+.card-drag-handle:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.card-drag-handle:active { cursor: grabbing; }
+.card.dragging { opacity: .55; }
+.card.drag-over-before { box-shadow: inset 0 3px 0 0 var(--accent); }
+.card.drag-over-after { box-shadow: inset 0 -3px 0 0 var(--accent); }
 
 /* BODY */
 .card-body { padding: 13px; display: flex; flex-direction: column; gap: 9px; }
@@ -399,6 +410,9 @@ input::placeholder { color: var(--text2); opacity: .5; }
 }
 .t-header { color: var(--accent); font-weight: 500; }
 .t-extinf { color: var(--text); }
+.pv-channel-name { color: #f2c94c; font-weight: 700; }
+.pv-group-value { color: #8b5cf6; font-weight: 700; }
+.pv-logo-value { color: var(--text2); font-weight: 600; }
 .t-url    { color: var(--accent); }
 .t-backup { color: var(--text2); }
 .t-sep    { color: var(--border); }
@@ -496,7 +510,11 @@ input::placeholder { color: var(--text2); opacity: .5; }
   .bulk-group-input { max-width: 100%; }
 }
 @media (max-width: 380px) {
-  .card-preview { display: none; }
+  .card-preview {
+    display: block;
+    font-size: 11px;
+    min-width: 0;
+  }
   .card-group-tag { display: none; }
 }
 </style>
@@ -713,49 +731,127 @@ function toast(msg, dur = 2400) {
   toastTimer = setTimeout(() => t.classList.remove('show'), dur);
 }
 function newChannel() {
-  return { id: nextId(), name: '', logo: '', group: '', streams: [{ id: nextId(), url: '' }] };
+  return {
+    id: nextId(),
+    name: '',
+    logo: '',
+    group: '',
+    rawLines: null,
+    rawUrlPositions: [],
+    streams: [{ id: nextId(), url: '', isBackup: false }]
+  };
 }
 
 // ── PARSER ─────────────────────────────────────────────────────────────────
 function parseM3U(text) {
-  const lines = text.split('\n').map(l => l.trim());
+  const lines = text.split(/\r?\n/);
   const result = [];
   let i = 0;
-  if (lines[0] && lines[0].startsWith('#EXTM3U')) i = 1;
+  if (lines[0] && lines[0].trim().startsWith('#EXTM3U')) i = 1;
+
+  const attrRe = /([a-zA-Z0-9_-]+)\s*=\s*("([^"]*)"|'([^']*)'|([^,\s"]+))/g;
+
+  function findCommaOutsideQuotes(line) {
+    let commaIndex = -1;
+    let inDouble = false;
+    let inSingle = false;
+    for (let idx = 0; idx < line.length; idx++) {
+      const c = line[idx];
+      if (c === '"' && !inSingle) inDouble = !inDouble;
+      else if (c === "'" && !inDouble) inSingle = !inSingle;
+      else if (c === ',' && !inDouble && !inSingle) {
+        commaIndex = idx;
+        break;
+      }
+    }
+    return commaIndex;
+  }
+
+  function parseExtinf(line) {
+    const ch = {
+      id: nextId(),
+      name: '',
+      logo: '',
+      group: '',
+      rawLines: [],
+      rawUrlPositions: [],
+      streams: []
+    };
+
+    const commaIndex = findCommaOutsideQuotes(line);
+    const header = commaIndex !== -1 ? line.slice(0, commaIndex) : line;
+    const name   = commaIndex !== -1 ? line.slice(commaIndex + 1).trim() : '';
+
+    ch.rawLines = [line];
+
+    const attrs = header.replace(/^#EXTINF:[^ ]*\s*/i, '');
+    let m;
+    while ((m = attrRe.exec(attrs)) !== null) {
+      const key = m[1].toLowerCase();
+      const val = m[3] ?? m[4] ?? m[5] ?? '';
+      if (key === 'tvg-logo' || key === 'logo' || key === 'tvg-image' || key === 'image') ch.logo = val;
+      if (key === 'group-title' || key === 'group' || key === 'category') ch.group = val;
+    }
+
+    ch.name = name;
+    return ch;
+  }
+
+  function isStreamUrl(line) {
+    return /^(https?:\/\/|rtmp:\/\/|rtsp:\/\/|\/)/i.test(line) || /^#(https?:\/\/|rtmp:\/\/|rtsp:\/\/|\/)/i.test(line);
+  }
+
   while (i < lines.length) {
-    const line = lines[i];
+    const raw = lines[i];
+    const line = raw.trim();
+
     if (!line || line === '#EXTM3U') { i++; continue; }
-    if (line.startsWith('#') && !line.startsWith('#EXTINF') && !line.startsWith('#http') && !line.startsWith('#https')) { i++; continue; }
+    if (line.startsWith('#') && !line.startsWith('#EXTINF') && !line.startsWith('#http') && !line.startsWith('#https') && !line.startsWith('#rtmp') && !line.startsWith('#rtsp')) { i++; continue; }
+
     if (line.startsWith('#EXTINF')) {
-      const ch = { id: nextId(), name: '', logo: '', group: '', streams: [] };
-      const attrMatch = line.match(/^#EXTINF:[^,]*(.*),(.*)$/);
-      if (attrMatch) {
-        const attrs = attrMatch[1];
-        ch.name = attrMatch[2].trim();
-        const logoM  = attrs.match(/tvg-logo="([^"]*)"/);
-        const groupM = attrs.match(/group-title="([^"]*)"/);
-        if (logoM)  ch.logo  = logoM[1];
-        if (groupM) ch.group = groupM[1];
-      } else {
-        const ci = line.lastIndexOf(',');
-        if (ci !== -1) ch.name = line.slice(ci + 1).trim();
-      }
+      const ch = parseExtinf(line);
       i++;
+
       while (i < lines.length) {
-        const l = lines[i];
-        if (!l) { i++; continue; }
+        const raw2 = lines[i];
+        const l = raw2.trim();
+
+        if (!l) {
+          ch.rawLines.push(raw2);
+          i++;
+          continue;
+        }
         if (l.startsWith('#EXTINF')) break;
-        if (l.startsWith('#') && !l.startsWith('#http') && !l.startsWith('#https')) { i++; continue; }
-        if (l.startsWith('#http') || l.startsWith('#https')) { ch.streams.push({ id: nextId(), url: l.slice(1) }); i++; }
-        else if (l.startsWith('http') || l.startsWith('rtmp') || l.startsWith('rtsp') || l.startsWith('/')) { ch.streams.push({ id: nextId(), url: l }); i++; }
-        else { break; }
+        if (l === '#EXTM3U') {
+          ch.rawLines.push(raw2);
+          i++;
+          continue;
+        }
+
+        ch.rawLines.push(raw2);
+
+        if (isStreamUrl(l)) {
+          const streamLine = l.startsWith('#') ? l.slice(1) : l;
+          ch.rawUrlPositions.push(ch.rawLines.length - 1);
+          ch.streams.push({
+            id: nextId(),
+            url: streamLine,
+            isBackup: l.startsWith('#')
+          });
+        }
+
+        i++;
       }
-      if (ch.streams.length === 0) ch.streams.push({ id: nextId(), url: '' });
+
+      if (ch.streams.length === 0) ch.streams.push({ id: nextId(), url: '', isBackup: false });
       result.push(ch);
-    } else { i++; }
+    } else {
+      i++;
+    }
   }
   return result;
 }
+
 
 // ── IMPORT FILE ────────────────────────────────────────────────────────────
 const dropzone  = document.getElementById('dropzone');
@@ -844,13 +940,13 @@ document.getElementById('clearAllBtn').onclick = () => {
 
 document.getElementById('addChBtn').onclick = () => {
   const ch = newChannel(); channels.push(ch);
-  listEl.appendChild(buildCard(ch, channels.length - 1));
+  listEl.appendChild(buildCard(ch, channels.length - 1, { startCollapsed: false }));
   syncOutput(); renumberCards(); refreshGroupFilter(); updateSelectAllRow();
 };
 
 function rebuildAll() {
   listEl.innerHTML = '';
-  channels.forEach((ch, i) => listEl.appendChild(buildCard(ch, i)));
+  channels.forEach((ch, i) => listEl.appendChild(buildCard(ch, i, { startCollapsed: true })));
   syncOutput(); refreshGroupFilter(); updateBulkBar(); updateSelectAllRow();
 }
 
@@ -1001,8 +1097,21 @@ document.getElementById('btnBulkDesel').onclick = () => {
   updateBulkBar(); updateSelectAllRow();
 };
 
+function syncChannelsOrderFromDOM() {
+  const order = [...listEl.querySelectorAll('.card')]
+    .map(card => parseInt(card.dataset.cid, 10))
+    .filter(Number.isFinite);
+  if (!order.length) return;
+  const map = new Map(channels.map(ch => [ch.id, ch]));
+  channels = order.map(id => map.get(id)).filter(Boolean);
+  renumberCards();
+  syncOutput();
+  refreshGroupFilter();
+}
+
 // ── CARD ───────────────────────────────────────────────────────────────────
-function buildCard(ch, idx) {
+function buildCard(ch, idx, opts = {}) {
+  const startCollapsed = opts.startCollapsed !== false;
   const card = document.createElement('div');
   card.className = 'card';
   card.dataset.cid = ch.id;
@@ -1029,11 +1138,17 @@ function buildCard(ch, idx) {
   gtag.textContent = ch.group; gtag.style.display = ch.group ? '' : 'none';
 
   const btns = document.createElement('div'); btns.className = 'card-btns';
+  const dragHandle = document.createElement('button');
+  dragHandle.className = 'card-drag-handle';
+  dragHandle.title = 'Drag untuk pindah urutan';
+  dragHandle.type = 'button';
+  dragHandle.draggable = true;
+  dragHandle.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="7" r="1"/><circle cx="15" cy="7" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="17" r="1"/><circle cx="15" cy="17" r="1"/></svg>`;
   const toggleBtn = document.createElement('button'); toggleBtn.className = 'card-btn toggle'; toggleBtn.title = 'Lipat/Buka';
   toggleBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="18 15 12 9 6 15"/></svg>`;
   const delBtn = document.createElement('button'); delBtn.className = 'card-btn del'; delBtn.title = 'Hapus';
   delBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
-  btns.append(toggleBtn, delBtn);
+  btns.append(dragHandle, toggleBtn, delBtn);
   top.append(idxEl, prev, gtag, btns);
 
   const body = document.createElement('div'); body.className = 'card-body';
@@ -1076,19 +1191,55 @@ function buildCard(ch, idx) {
 
   const addBackup = document.createElement('button'); addBackup.className = 'btn-add-backup';
   addBackup.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="11" height="11"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Tambah URL Cadangan`;
-  addBackup.onclick = () => { ch.streams.push({ id: nextId(), url: '' }); renderStreams(); syncOutput(); };
+  addBackup.onclick = () => { ch.streams.push({ id: nextId(), url: '', isBackup: true }); renderStreams(); syncOutput(); };
   streamsSec.append(streamsLbl, streamsList, addBackup);
   body.append(row2, fLogo.wrap, streamsSec);
   card.append(top, body);
 
   // EVENTS
-  let collapsed = false;
+  let collapsed = startCollapsed;
   const toggleSvg = toggleBtn.querySelector('svg');
+  body.classList.toggle('hidden', collapsed);
+  toggleSvg.style.transform = collapsed ? 'rotate(180deg)' : '';
   top.addEventListener('click', e => {
-    if (e.target.closest('.del') || e.target.closest('.card-check')) return;
+    if (e.target.closest('.del') || e.target.closest('.card-check') || e.target.closest('.card-drag-handle')) return;
     collapsed = !collapsed;
     body.classList.toggle('hidden', collapsed);
     toggleSvg.style.transform = collapsed ? 'rotate(180deg)' : '';
+  });
+
+  dragHandle.addEventListener('dragstart', e => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(ch.id));
+    card.classList.add('dragging');
+  });
+
+  dragHandle.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    listEl.querySelectorAll('.card').forEach(c => c.classList.remove('drag-over-before', 'drag-over-after'));
+    syncChannelsOrderFromDOM();
+  });
+
+  card.addEventListener('dragover', e => {
+    e.preventDefault();
+    const dragging = listEl.querySelector('.card.dragging');
+    if (!dragging || dragging === card) return;
+    const rect = card.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    listEl.querySelectorAll('.card').forEach(c => c.classList.remove('drag-over-before', 'drag-over-after'));
+    card.classList.add(after ? 'drag-over-after' : 'drag-over-before');
+    const ref = after ? card.nextElementSibling : card;
+    if (ref !== dragging) listEl.insertBefore(dragging, ref);
+  });
+
+  card.addEventListener('dragleave', () => {
+    card.classList.remove('drag-over-before', 'drag-over-after');
+  });
+
+  card.addEventListener('drop', e => {
+    e.preventDefault();
+    card.classList.remove('drag-over-before', 'drag-over-after');
+    syncChannelsOrderFromDOM();
   });
   delBtn.addEventListener('click', e => {
     e.stopPropagation();
@@ -1123,25 +1274,136 @@ function mkField(lbl, type, val, ph) {
 
 // ── M3U GENERATOR ──────────────────────────────────────────────────────────
 const SEP = '#=========================';
+
+function findExtinfComma(line) {
+  let commaIndex = -1;
+  let inDouble = false;
+  let inSingle = false;
+  for (let idx = 0; idx < line.length; idx++) {
+    const c = line[idx];
+    if (c === '"' && !inSingle) inDouble = !inDouble;
+    else if (c === "'" && !inDouble) inSingle = !inSingle;
+    else if (c === ',' && !inDouble && !inSingle) {
+      commaIndex = idx;
+      break;
+    }
+  }
+  return commaIndex;
+}
+
+function rebuildExtinfLine(rawLine, ch) {
+  const commaIndex = findExtinfComma(rawLine);
+  const header = commaIndex !== -1 ? rawLine.slice(0, commaIndex) : rawLine;
+  const title = ch.name || 'Unnamed';
+
+  let cleanHeader = header
+    .replace(/\s+(tvg-logo|logo|tvg-image|image)\s*=\s*("([^"]*)"|'([^']*)'|[^,\s"]+)/gi, '')
+    .replace(/\s+(group-title|group|category)\s*=\s*("([^"]*)"|'([^']*)'|[^,\s"]+)/gi, '');
+
+  const attrs = [];
+  if (ch.logo) attrs.push(`tvg-logo="${ch.logo}"`);
+  if (ch.group) attrs.push(`group-title="${ch.group}"`);
+
+  if (attrs.length) {
+    cleanHeader = cleanHeader.trimEnd() + ' ' + attrs.join(' ');
+  }
+
+  return `${cleanHeader},${title}`;
+}
+
+function buildChannelBlock(ch) {
+  const rawLines = Array.isArray(ch.rawLines) && ch.rawLines.length ? ch.rawLines.slice() : null;
+
+  if (!rawLines) {
+    const name = ch.name || 'Unnamed';
+    const logo = ch.logo ? ` tvg-logo="${ch.logo}"` : '';
+    const group = ch.group ? ` group-title="${ch.group}"` : '';
+    let out = `#EXTINF:-1${logo}${group},${name}\n`;
+    ch.streams.forEach((s, si) => {
+      const u = String(s.url || '').trim();
+      if (!u) return;
+      const pref = s.isBackup || si > 0 ? '#' : '';
+      out += `${pref}${u}\n`;
+    });
+    return out;
+  }
+
+  rawLines[0] = rebuildExtinfLine(rawLines[0], ch);
+
+  const streamIndexes = ch.rawUrlPositions && ch.rawUrlPositions.length
+    ? ch.rawUrlPositions.slice()
+    : rawLines
+        .map((ln, idx) => ({ ln: String(ln || '').trim(), idx }))
+        .filter(x => /^(https?:\/\/|rtmp:\/\/|rtsp:\/\/|\/)/i.test(x.ln) || /^#(https?:\/\/|rtmp:\/\/|rtsp:\/\/|\/)/i.test(x.ln))
+        .map(x => x.idx);
+
+  let streamIdx = 0;
+
+  streamIndexes.forEach(pos => {
+    if (streamIdx >= ch.streams.length) return;
+    const s = ch.streams[streamIdx++];
+    const u = String(s.url || '').trim();
+    if (!u) {
+      rawLines[pos] = '';
+      return;
+    }
+    const pref = typeof s.isBackup === 'boolean' ? s.isBackup : (streamIdx > 1);
+    rawLines[pos] = pref ? `#${u}` : u;
+  });
+
+  while (streamIdx < ch.streams.length) {
+    const s = ch.streams[streamIdx++];
+    const u = String(s.url || '').trim();
+    if (!u) continue;
+    const pref = typeof s.isBackup === 'boolean' ? s.isBackup : (streamIdx > 1);
+    rawLines.push(pref ? `#${u}` : u);
+  }
+
+  return rawLines.join('\n') + '\n';
+}
+
 function makeM3U() {
   const useSep = document.getElementById('optSep').checked;
   let out = '#EXTM3U\n';
   channels.forEach((ch, ci) => {
     if (useSep) out += '\n';
-    const name  = ch.name || 'Unnamed';
-    const logo  = ch.logo  ? ` tvg-logo="${ch.logo}"`     : '';
-    const group = ch.group ? ` group-title="${ch.group}"` : '';
-    out += `#EXTINF:-1${logo}${group},${name}\n`;
-    ch.streams.forEach((s, si) => {
-      const u = s.url.trim(); if (!u) return;
-      out += si === 0 ? `${u}\n` : `#${u}\n`;
-    });
+    out += buildChannelBlock(ch);
     if (useSep && ci < channels.length - 1) out += `\n${SEP}\n`;
   });
   return out;
 }
 
 // ── SYNC OUTPUT ────────────────────────────────────────────────────────────
+function renderPreviewLine(line) {
+  if (!line) return '';
+  if (line.startsWith('#EXTM3U')) return `<span class="t-header">${esc(line)}</span>`;
+  if (line.startsWith('#EXTINF')) {
+    const commaIndex = findExtinfComma(line);
+    const header = commaIndex !== -1 ? line.slice(0, commaIndex) : line;
+    const title = commaIndex !== -1 ? line.slice(commaIndex + 1).trim() : '';
+
+    let headerHtml = '';
+    let last = 0;
+    const attrRe = /(tvg-logo|logo|tvg-image|image|group-title|group|category)\s*=\s*("([^"]*)"|'([^']*)'|([^,\s"]+))/ig;
+    let m;
+    while ((m = attrRe.exec(header)) !== null) {
+      headerHtml += esc(header.slice(last, m.index));
+      const key = m[1];
+      const val = m[3] ?? m[4] ?? m[5] ?? '';
+      const cls = /^(group-title|group|category)$/i.test(key) ? 'pv-group-value' : 'pv-logo-value';
+      headerHtml += `${esc(key)}=<span class="${cls}">${esc(val)}</span>`;
+      last = m.index + m[0].length;
+    }
+    headerHtml += esc(header.slice(last));
+
+    const titleHtml = title ? `,<span class="pv-channel-name">${esc(title)}</span>` : '';
+    return `<span class="t-extinf">${headerHtml}${titleHtml}</span>`;
+  }
+  if (line === SEP) return `<span class="t-sep">${esc(line)}</span>`;
+  if (line.startsWith('#')) return `<span class="t-backup">${esc(line)}</span>`;
+  return `<span class="t-url">${esc(line)}</span>`;
+}
+
 function syncOutput() {
   const previewEl = document.getElementById('previewBody');
   const countEl   = document.getElementById('previewCount');
@@ -1153,22 +1415,15 @@ function syncOutput() {
   dlBtn.disabled = channels.length === 0;
   if (!channels.length) {
     previewEl.innerHTML = '<div class="t-empty">Belum ada channel ditambahkan</div>';
-    countEl.textContent = '–'; return;
+    countEl.textContent = '–';
+    return;
   }
-  const m3u   = makeM3U();
+  const m3u = makeM3U();
   const count = m3u.split('\n').filter(l => l.trim()).length;
   countEl.textContent = count + ' baris';
-  let html = '';
-  m3u.split('\n').forEach(line => {
-    if (!line) { html += '\n'; return; }
-    if (line.startsWith('#EXTM3U'))     html += `<span class="t-header">${esc(line)}</span>\n`;
-    else if (line.startsWith('#EXTINF')) html += `<span class="t-extinf">${esc(line)}</span>\n`;
-    else if (line === SEP)               html += `<span class="t-sep">${esc(line)}</span>\n`;
-    else if (line.startsWith('#'))       html += `<span class="t-backup">${esc(line)}</span>\n`;
-    else                                 html += `<span class="t-url">${esc(line)}</span>\n`;
-  });
-  previewEl.innerHTML = html;
+  previewEl.innerHTML = m3u.split('\n').map(renderPreviewLine).join('\n');
 }
+
 document.getElementById('optSep').onchange = syncOutput;
 
 // ── DOWNLOAD ───────────────────────────────────────────────────────────────
