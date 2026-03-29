@@ -1391,7 +1391,7 @@ function renderPreviewLine(line) {
       const key = m[1];
       const val = m[3] ?? m[4] ?? m[5] ?? '';
       const cls = /^(group-title|group|category)$/i.test(key) ? 'pv-group-value' : 'pv-logo-value';
-      headerHtml += `${esc(key)}=<span class="${cls}">${esc(val)}</span>`;
+      headerHtml += `${esc(key)}="<span class="${cls}">${esc(val)}</span>"`;
       last = m.index + m[0].length;
     }
     headerHtml += esc(header.slice(last));
