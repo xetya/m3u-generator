@@ -524,7 +524,7 @@ input::placeholder { color: var(--text2); opacity: .5; }
 <header class="topbar">
   <div class="logo"><div class="logo-dot"></div>M3U Generator</div>
   <div class="topbar-right">
-    <span class="chip">easy to use</span>
+    <span class="chip">playlist builder</span>
     <button class="icon-btn" id="themeBtn" title="Toggle tema">
       <svg id="themeIco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="5"/>
@@ -538,8 +538,8 @@ input::placeholder { color: var(--text2); opacity: .5; }
 </header>
 
 <nav class="tabs">
-  <button class="tab-btn active" data-tab="build">Buat / Edit</button>
-  <button class="tab-btn" data-tab="import">Import M3U</button>
+  <button class="tab-btn active" data-tab="build">✏️ Buat / Edit</button>
+  <button class="tab-btn" data-tab="import">📂 Import M3U</button>
 </nav>
 
 <div class="layout">
@@ -736,6 +736,18 @@ function newChannel() {
     name: '',
     logo: '',
     group: '',
+    rawLines: null,
+    rawUrlPositions: [],
+    streams: [{ id: nextId(), url: '', isBackup: false }]
+  };
+}
+
+function duplicateChannel(source) {
+  return {
+    id: nextId(),
+    name: '',
+    logo: '',
+    group: source?.group || '',
     rawLines: null,
     rawUrlPositions: [],
     streams: [{ id: nextId(), url: '', isBackup: false }]
@@ -1157,9 +1169,11 @@ function buildCard(ch, idx, opts = {}) {
   dragHandle.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="7" r="1"/><circle cx="15" cy="7" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="17" r="1"/><circle cx="15" cy="17" r="1"/></svg>`;
   const toggleBtn = document.createElement('button'); toggleBtn.className = 'card-btn toggle'; toggleBtn.title = 'Lipat/Buka';
   toggleBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="18 15 12 9 6 15"/></svg>`;
+  const dupBtn = document.createElement('button'); dupBtn.className = 'card-btn dup'; dupBtn.title = 'Duplikat';
+  dupBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="10" height="10" rx="2"/><path d="M5 15V5h10"/></svg>`;
   const delBtn = document.createElement('button'); delBtn.className = 'card-btn del'; delBtn.title = 'Hapus';
   delBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
-  btns.append(dragHandle, toggleBtn, delBtn);
+  btns.append(dragHandle, toggleBtn, dupBtn, delBtn);
   top.append(idxEl, prev, gtag, btns);
 
   const body = document.createElement('div'); body.className = 'card-body';
@@ -1252,6 +1266,32 @@ function buildCard(ch, idx, opts = {}) {
     card.classList.remove('drag-over-before', 'drag-over-after');
     syncChannelsOrderFromDOM();
   });
+  dupBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    const srcIdx = channels.findIndex(c => c.id === ch.id);
+    if (srcIdx === -1) return;
+
+    const dup = duplicateChannel(ch);
+    channels.splice(srcIdx + 1, 0, dup);
+    const dupCard = buildCard(dup, srcIdx + 1, { startCollapsed: false });
+    card.after(dupCard);
+
+    const srcBody = card.querySelector('.card-body');
+    const srcToggleSvg = card.querySelector('.card-btn.toggle svg');
+    if (srcBody) srcBody.classList.add('hidden');
+    if (srcToggleSvg) srcToggleSvg.style.transform = 'rotate(180deg)';
+
+    const dupBody = dupCard.querySelector('.card-body');
+    const dupToggleSvg = dupCard.querySelector('.card-btn.toggle svg');
+    if (dupBody) dupBody.classList.remove('hidden');
+    if (dupToggleSvg) dupToggleSvg.style.transform = '';
+
+    dupCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    syncOutput(); renumberCards(); refreshGroupFilter(); updateSelectAllRow();
+    toast('Channel diduplikasi');
+  });
+
   delBtn.addEventListener('click', e => {
     e.stopPropagation();
     channels = channels.filter(c => c.id !== ch.id);
