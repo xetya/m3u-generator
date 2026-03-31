@@ -938,7 +938,18 @@ document.getElementById('clearAllBtn').onclick = () => {
   rebuildAll(); toast('Semua channel dihapus');
 };
 
+function collapseOpenCards() {
+  listEl.querySelectorAll('.card').forEach(card => {
+    const body = card.querySelector('.card-body');
+    if (body && !body.classList.contains('hidden')) {
+      const top = card.querySelector('.card-top');
+      if (top) top.click();
+    }
+  });
+}
+
 document.getElementById('addChBtn').onclick = () => {
+  collapseOpenCards();
   const ch = newChannel(); channels.push(ch);
   listEl.appendChild(buildCard(ch, channels.length - 1, { startCollapsed: false }));
   syncOutput(); renumberCards(); refreshGroupFilter(); updateSelectAllRow();
